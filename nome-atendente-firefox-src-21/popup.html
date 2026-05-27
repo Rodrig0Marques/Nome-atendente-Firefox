@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <title>Nome do Atendente</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <main class="card">
+    <div class="header">
+      <div class="logo">WA</div>
+      <div>
+        <h1>Nome do Atendente</h1>
+        <p>Configure o nome que será enviado nas mensagens.</p>
+      </div>
+    </div>
+
+    <label for="attendantName">Nome do atendente</label>
+    <input id="attendantName" type="text" placeholder="Ex: Rodrigo Marques" autocomplete="off">
+
+    <button id="saveButton" type="button">Salvar</button>
+
+    <p id="status" class="status"></p>
+
+    <div class="preview">
+      <span>Prévia:</span>
+      <strong id="previewName">Rodrigo Marques</strong>
+      <small>teste</small>
+    </div>
+  </main>
+
+  <script src="popup.js"></script>
+</body>
+</html>
