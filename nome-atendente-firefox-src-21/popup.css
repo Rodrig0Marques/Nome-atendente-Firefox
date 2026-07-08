@@ -117,3 +117,10 @@ button:hover {
 .preview small {
   font-size: 13px;
 }
+
+.version {
+  margin-top: 12px;
+  font-size: 11px;
+  color: #777;
+  text-align: center;
+}
