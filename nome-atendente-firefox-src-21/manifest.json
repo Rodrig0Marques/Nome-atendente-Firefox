@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
-  "name": "Nome do Atendente para WhatsApp - V21",
-  "version": "21.0",
+  "name": "Nome do Atendente para WhatsApp",
+  "version": "22.0",
   "description": "Insere o nome do atendente em negrito e permite alterar o nome por uma interface.",
   "browser_action": {
     "default_title": "Nome do Atendente",
