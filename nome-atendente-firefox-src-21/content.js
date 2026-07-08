@@ -1,15 +1,6 @@
 (() => {
   'use strict';
 
-  /*
-    V31 - texto + arquivos + nome em negrito pelo markdown do WhatsApp.
-    Base da v18, que funcionou no envio.
-    Mudança:
-    - Insere "*Rodrigo Marques*" no campo.
-    - Não dispara InputEvent manual com data, para não duplicar.
-    - Mantém busca robusta do botão de enviar.
-  */
-
   let ATTENDANT_NAME = 'Rodrigo Marques';
   let ATTENDANT_MARKDOWN = `*${ATTENDANT_NAME}*`;
 
@@ -336,9 +327,6 @@
     const dialog = button.closest?.('[role="dialog"]');
     if (!dialog) return false;
 
-    // Regra principal:
-    // qualquer botão de enviar dentro de popup/modal do WhatsApp deve ser ignorado,
-    // exceto quando for claramente o modal de arquivo com campo de legenda.
     return !dialogLooksLikeCaption(dialog);
   }
 
@@ -651,8 +639,6 @@
     const rootRect = root.getBoundingClientRect();
     const clickedRect = clicked.getBoundingClientRect();
 
-    // WhatsApp às vezes renderiza o botão de envio em outro nó visualmente dentro do mesmo popup.
-    // Se o botão estiver visualmente dentro da área do popup de encaminhamento, ignorar.
     const cx = clickedRect.left + clickedRect.width / 2;
     const cy = clickedRect.top + clickedRect.height / 2;
 
@@ -699,8 +685,6 @@
     if (!clicked) return;
     if (!isSendControl(clicked)) return;
 
-    // Encaminhamento: nunca interferir. O WhatsApp deve encaminhar sozinho,
-    // com ou sem texto/legenda original da mensagem encaminhada.
     if (isClickInForwardArea(clicked) || isInsideForwardPopup(clicked) || isForwardDialog(clicked) || isForwardingWithoutComposer(clicked)) {
       log('forward_popup:skip_intercept');
       return;
@@ -716,8 +700,6 @@
     const dialog = clicked.closest?.('[role="dialog"]');
     const composerStrict = composerFromButtonStrict(clicked);
 
-    // Dentro de popup/modal, nunca usar fallback para o campo normal da conversa.
-    // Se não encontrou campo de legenda no próprio modal, deixa o WhatsApp seguir sozinho.
     if (dialog && !composerStrict) {
       log('dialog_without_caption_composer:skip_intercept');
       return;
