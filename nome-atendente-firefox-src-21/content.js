@@ -1,7 +1,16 @@
 (() => {
   'use strict';
 
-  let ATTENDANT_NAME = 'Inserir nome';
+  /*
+    V31 - texto + arquivos + nome em negrito pelo markdown do WhatsApp.
+    Base da v18, que funcionou no envio.
+    Mudança:
+    - Insere "*Rodrigo Marques*" no campo.
+    - Não dispara InputEvent manual com data, para não duplicar.
+    - Mantém busca robusta do botão de enviar.
+  */
+
+  let ATTENDANT_NAME = 'Rodrigo Marques';
   let ATTENDANT_MARKDOWN = `*${ATTENDANT_NAME}*`;
 
   function updateAttendantName(name) {
@@ -53,8 +62,8 @@
     }
   }
 
-  const INSTANCE_ATTR = 'data-cdc-attendant-v21-active';
-  const INTERNAL_SEND_ATTR = 'data-cdc-attendant-v21-internal-send';
+  const INSTANCE_ATTR = 'data-cdc-attendant-v31-active';
+  const INTERNAL_SEND_ATTR = 'data-cdc-attendant-v31-internal-send';
 
   if (document.documentElement.getAttribute(INSTANCE_ATTR) === 'true') {
     return;
@@ -70,7 +79,7 @@
   const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
   function log(step, data = {}) {
-    console.log('[Nome Atendente v21]', step, data);
+    console.log('[Nome Atendente v31]', step, data);
   }
 
   function escapeRegExp(value) {
@@ -290,6 +299,49 @@
       previewText.includes('Add a caption');
   }
 
+  function dialogLooksLikeCaption(dialog) {
+    if (!dialog) return false;
+
+    const dialogText = normalize(dialog.innerText || '').toLowerCase();
+
+    if (
+      dialogText.includes('adicionar legenda') ||
+      dialogText.includes('adicione uma legenda') ||
+      dialogText.includes('add a caption') ||
+      dialogText.includes('legenda') ||
+      dialogText.includes('caption')
+    ) {
+      return true;
+    }
+
+    const fields = Array.from(dialog.querySelectorAll?.('div[contenteditable="true"]') || [])
+      .filter(isVisible);
+
+    return fields.some(field => {
+      const meta = normalize([
+        field.getAttribute('aria-label') || '',
+        field.getAttribute('aria-placeholder') || '',
+        field.getAttribute('placeholder') || '',
+        field.getAttribute('title') || ''
+      ].join(' ')).toLowerCase();
+
+      return meta.includes('legenda') ||
+        meta.includes('caption') ||
+        meta.includes('adicione uma legenda') ||
+        meta.includes('add a caption');
+    });
+  }
+
+  function shouldIgnoreDialogClick(button) {
+    const dialog = button.closest?.('[role="dialog"]');
+    if (!dialog) return false;
+
+    // Regra principal:
+    // qualquer botão de enviar dentro de popup/modal do WhatsApp deve ser ignorado,
+    // exceto quando for claramente o modal de arquivo com campo de legenda.
+    return !dialogLooksLikeCaption(dialog);
+  }
+
   function focusAndSelectAll(composer) {
     composer.focus();
 
@@ -424,19 +476,28 @@
   async function prepareAndSend(composerFromEvent = null) {
     if (processing) return;
 
+    if (isInsideForwardPopup(composerFromEvent) || isForwardDialog(composerFromEvent)) {
+      log('prepare_forward_popup:skip_intercept');
+      return;
+    }
+
     const composer = composerFromEvent || getActiveComposer();
-    const fileModal = isFileModalOpen();
 
     if (!composer) {
-      log('prepare:no_composer', { fileModal });
+      log('prepare:no_composer');
+      return;
+    }
+
+    if (isInsideForwardPopup(composer) || isForwardDialog(composer)) {
+      log('prepare_forward_composer:skip_intercept');
       return;
     }
 
     const originalText = getText(composer);
     const message = getUserMessage(originalText);
 
-    if (!message && !fileModal) {
-      log('prepare:no_text_normal_message');
+    if (!message) {
+      log('prepare:no_text_skip');
       return;
     }
 
@@ -445,12 +506,11 @@
     log('prepare:start', {
       originalText,
       message,
-      fileModal,
       html: getHtml(composer)
     });
 
     try {
-      const ok = await writeWithMarkdownBold(composer, message, fileModal);
+      const ok = await writeWithMarkdownBold(composer, message, false);
 
       if (!ok) {
         log('prepare:cancel_after_write', {
@@ -495,18 +555,136 @@
     return getActiveComposer();
   }
 
+  function composerFromButtonStrict(button) {
+    const root = button.closest('[role="dialog"]') ||
+      button.closest('footer') ||
+      button.closest('main') ||
+      document;
+
+    const fields = Array.from(root.querySelectorAll?.('div[contenteditable="true"]') || [])
+      .filter(isVisible)
+      .filter(looksLikeMessageField);
+
+    if (fields.length) return fields[fields.length - 1];
+
+    return null;
+  }
+
+  function isForwardingWithoutComposer(button) {
+    const root = button.closest('[role="dialog"]');
+    if (!root) return false;
+
+    const fields = Array.from(root.querySelectorAll?.('div[contenteditable="true"]') || [])
+      .filter(isVisible)
+      .filter(looksLikeMessageField);
+
+    if (fields.length) return false;
+
+    const rootText = normalize(root.innerText || '').toLowerCase();
+
+    return rootText.includes('encaminhar') ||
+      rootText.includes('encaminhada') ||
+      rootText.includes('forward') ||
+      rootText.includes('forwarded');
+  }
+
+  function hasForwardPopupText(text) {
+    const value = normalize(text || '').toLowerCase();
+
+    return value.includes('encaminhar mensagem para') ||
+      value.includes('encaminhar para') ||
+      value.includes('1 selecionada') ||
+      value.includes('selecionada') ||
+      value.includes('selecionadas') ||
+      value.includes('conversas recentes') ||
+      value.includes('pesquisar nome ou numero') ||
+      value.includes('pesquisar nome ou número') ||
+      value.includes('forward message to') ||
+      value.includes('forward to') ||
+      value.includes('selected');
+  }
+
+  function isForwardDialog(buttonOrElement) {
+    const root =
+      buttonOrElement?.closest?.('[role="dialog"]') ||
+      buttonOrElement?.closest?.('[data-animate-modal-popup="true"]');
+
+    if (!root) return false;
+
+    const text = root.innerText || '';
+    const aria = [
+      root.getAttribute?.('aria-label') || '',
+      buttonOrElement?.getAttribute?.('aria-label') || '',
+      buttonOrElement?.getAttribute?.('title') || ''
+    ].join(' ');
+
+    return hasForwardPopupText(`${text} ${aria}`);
+  }
+
+  function isInsideForwardPopup(element) {
+    let node = element;
+
+    for (let i = 0; node && i < 16; i += 1) {
+      if (hasForwardPopupText(node.innerText || '')) {
+        return true;
+      }
+
+      node = node.parentElement;
+    }
+
+    return false;
+  }
+
+  function getForwardPopupRoot() {
+    const candidates = Array.from(document.querySelectorAll('[role="dialog"], [data-animate-modal-popup="true"], div'))
+      .filter(isVisible);
+
+    return candidates.find(el => hasForwardPopupText(el.innerText || '')) || null;
+  }
+
+  function isClickInForwardArea(clicked) {
+    const root = getForwardPopupRoot();
+    if (!root || !clicked) return false;
+
+    if (root.contains(clicked)) return true;
+
+    const rootRect = root.getBoundingClientRect();
+    const clickedRect = clicked.getBoundingClientRect();
+
+    // WhatsApp às vezes renderiza o botão de envio em outro nó visualmente dentro do mesmo popup.
+    // Se o botão estiver visualmente dentro da área do popup de encaminhamento, ignorar.
+    const cx = clickedRect.left + clickedRect.width / 2;
+    const cy = clickedRect.top + clickedRect.height / 2;
+
+    return cx >= rootRect.left &&
+      cx <= rootRect.right &&
+      cy >= rootRect.top &&
+      cy <= rootRect.bottom;
+  }
+
   document.addEventListener('keydown', event => {
     if (isInternalSend()) return;
 
     if (event.key !== 'Enter') return;
     if (event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) return;
+
+    if (isInsideForwardPopup(event.target) || isForwardDialog(event.target)) {
+      log('keydown_forward_popup:skip_intercept');
+      return;
+    }
+
+    const dialog = event.target.closest?.('[role="dialog"]');
+    if (dialog && !dialogLooksLikeCaption(dialog)) {
+      log('keydown_dialog_not_caption:skip_intercept');
+      return;
+    }
+
     if (!isComposerTarget(event.target)) return;
 
     const composer = getActiveComposer();
     const text = getText(composer);
-    const fileModal = isFileModalOpen();
 
-    if (!text && !fileModal) return;
+    if (!text) return;
 
     event.preventDefault();
     event.stopImmediatePropagation();
@@ -521,11 +699,40 @@
     if (!clicked) return;
     if (!isSendControl(clicked)) return;
 
-    const composer = composerFromButton(clicked);
-    const text = getText(composer);
-    const fileModal = isFileModalOpen();
+    // Encaminhamento: nunca interferir. O WhatsApp deve encaminhar sozinho,
+    // com ou sem texto/legenda original da mensagem encaminhada.
+    if (isClickInForwardArea(clicked) || isInsideForwardPopup(clicked) || isForwardDialog(clicked) || isForwardingWithoutComposer(clicked)) {
+      log('forward_popup:skip_intercept');
+      return;
+    }
 
-    if (!text && !fileModal) return;
+    // Não atuar em outros popups/modais do WhatsApp, exceto no modal de arquivo com legenda.
+    // Importante: isso não deve afetar o envio normal de imagem/arquivo com legenda.
+    if (shouldIgnoreDialogClick(clicked)) {
+      log('dialog_not_caption:skip_intercept');
+      return;
+    }
+
+    const dialog = clicked.closest?.('[role="dialog"]');
+    const composerStrict = composerFromButtonStrict(clicked);
+
+    // Dentro de popup/modal, nunca usar fallback para o campo normal da conversa.
+    // Se não encontrou campo de legenda no próprio modal, deixa o WhatsApp seguir sozinho.
+    if (dialog && !composerStrict) {
+      log('dialog_without_caption_composer:skip_intercept');
+      return;
+    }
+
+    const composer = composerStrict || composerFromButton(clicked);
+    const text = getText(composer);
+
+    // Segurança principal:
+    // nunca interceptar envio sem texto já digitado.
+    // Isso evita que encaminhamentos ou modais vazios sejam substituídos somente pelo nome do atendente.
+    if (!text) {
+      log('empty_text:skip_intercept');
+      return;
+    }
 
     event.preventDefault();
     event.stopImmediatePropagation();
